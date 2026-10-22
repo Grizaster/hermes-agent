@@ -9,6 +9,7 @@ until GC, exhausting ``RLIMIT_NOFILE`` on long-running gateways) and at least on
 from __future__ import annotations
 
 import contextlib
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -43,6 +44,15 @@ def open_db(
     path.parent.mkdir(parents=True, exist_ok=True)
     # Resolved at call time: fd-leak tests patch ``sqlite3.connect`` through the caller's module.
     conn = sqlite3.connect(path, timeout=busy_timeout_ms / 1000, check_same_thread=check_same_thread)
+    # SECURITY (Audit 22.10.2026, Befund 10): state DBs carry conversation and
+    # project data. Owner-only perms independent of the parent dir's umask -
+    # the 0700 on the Hermes home must not be the only gate (backup tools,
+    # mounts or checkouts can loosen parents). Includes WAL/SHM companions.
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            os.chmod(str(path) + suffix, 0o600)
+        except OSError:
+            pass
     try:
         conn.row_factory = row_factory
         conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")

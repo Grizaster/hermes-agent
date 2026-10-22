@@ -606,14 +606,24 @@ def _connect_tracked_db(path, tracking_path=None, **kwargs):
     EXCLUSIVE).  The ONLY tolerated fallback is the helper being absent (scaffold/embed installs
     without hermes_cli); a real connection failure must propagate — a silent untracked retry
     would disable the guard for that connection."""
+    # SECURITY (Audit 22.10.2026, Befund 10): owner-only perms on the state DB
+    # and its WAL/SHM companions, independent of the parent dir's umask.
+    def _tighten(conn):
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                Path(f"{path}{suffix}").chmod(0o600)
+            except (OSError, ValueError):
+                pass
+        return conn
+
     try:
         from hermes_cli.sqlite_safe_read import connect_tracked
     except ImportError:
         logger.debug("hermes_cli.sqlite_safe_read unavailable; opening %s untracked "
                      "(byte-probe guard inactive in this install)", path)
-        return sqlite3.connect(str(path), **kwargs)
+        return _tighten(sqlite3.connect(str(path), **kwargs))
     # Open through THIS module's sqlite3.connect so tests patching hermes_state.sqlite3.connect keep control.
-    return connect_tracked(path, tracking_path=tracking_path, connect_fn=sqlite3.connect, **kwargs)
+    return _tighten(connect_tracked(path, tracking_path=tracking_path, connect_fn=sqlite3.connect, **kwargs))
 
 
 def _preopen_header(path: Path, probe_bytes: int, force: bool) -> Optional[bytes]:

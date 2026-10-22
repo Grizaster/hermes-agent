@@ -151,11 +151,23 @@ def load_plugin_module(module_name: str, plugin_dir: Path, *, parents: tuple[str
     if not init_file.exists():
         return None
     if synthetic_namespace:  # user code: never imported in-process under plugins.isolation: host
-        from hermes_cli.plugin_isolation import in_process_import_refusal
+        from hermes_cli.plugin_isolation import (
+            ISOLATION_IN_PROCESS, in_process_import_refusal, isolation_mode)
         refusal = in_process_import_refusal(f"plugin {plugin_dir.name!r} (loaded as {module_name})")
         if refusal:
             logger.warning("%s", refusal)
             return None
+        # SECURITY (Audit 22.10.2026, Befund 9): a third-party plugin loaded
+        # in_process shares the gateway's memory, credentials and sys.modules —
+        # make that exposure explicit at load time and name the containment
+        # option (plugins.isolation: host). Warning only, no behavior change.
+        if isolation_mode() == ISOLATION_IN_PROCESS:
+            logger.warning(
+                "Third-party plugin %r runs IN-PROCESS (plugins.isolation: in_process): it shares "
+                "the gateway process, its memory and credentials. Review the code, or set "
+                "plugins.isolation: host for containment.",
+                plugin_dir.name,
+            )
     # _new_module publishes a package shell before executing it so sibling relative
     # imports work. Serialize the complete load so another thread cannot observe
     # that half-built shell as a loaded plugin.

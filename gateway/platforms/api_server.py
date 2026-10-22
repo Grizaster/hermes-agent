@@ -2423,8 +2423,12 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
     # -- HTTP handlers ----------------------------------------------------------------
 
     async def _handle_health(self, request: web.Request) -> web.Response:
-        """GET /health — simple health check."""
-        return web.json_response({"status": "ok", "platform": "hermes-agent", "version": _hermes_version()})
+        """GET /health — simple health check.
+
+        SECURITY (Audit 22.10.2026, Befund 7): no version details on the
+        unauthenticated endpoint — precise version data serves targeted
+        attacks. The version lives behind Bearer auth in /health/detailed."""
+        return web.json_response({"status": "ok"})
 
     @_require_auth
     async def _handle_health_detailed(self, request: web.Request) -> web.Response:
