@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import simpleGit from 'simple-git'
+import { simpleGit } from 'simple-git'
 import { afterEach, test, vi } from 'vitest'
 
 import {
@@ -118,16 +118,28 @@ test('gitFor suppresses only the known custom-binary warning and restores consol
 
     assert.equal(console.warn, recordingWarn)
 
-    // The escape hatch used directly still warns: the message gitFor filters is a
-    // live emission of the installed simple-git, so the filter cannot go stale
-    // silently (an upgrade that rewords it fails this test, not production).
+    // Canary: the direct hatch call records a live emission of the INSTALLED
+    // simple-git. Whatever it emits must be exactly the message gitFor's filter
+    // knows about (simple-git 4.x emits nothing here; 3.x emitted
+    // SIMPLE_GIT_UNSAFE_BINARY_WARN). An upgrade that rewords or newly adds the
+    // warning fails HERE with an actionable message, not in production.
+    const before = warnings.length
     simpleGit({ baseDir: process.cwd(), binary: spacedBin, unsafe: { allowUnsafeCustomBinary: true } })
+    for (const args of warnings.slice(before)) {
+      assert.ok(
+        args.length === 1 && args[0] === SIMPLE_GIT_UNSAFE_BINARY_WARN,
+        `simple-git emitted an unknown custom-binary warning: ${JSON.stringify(args)} — update SIMPLE_GIT_UNSAFE_BINARY_WARN / gitFor's filter`,
+      )
+    }
+    warnings.length = 0
     console.warn('unrelated warning')
   } finally {
     console.warn = originalWarn
   }
 
-  assert.deepEqual(warnings, [[SIMPLE_GIT_UNSAFE_BINARY_WARN], ['unrelated warning']])
+  // gitFor leaked nothing from the custom-binary path; unrelated warnings pass
+  // through untouched and console.warn was restored to the recorder.
+  assert.deepEqual(warnings, [['unrelated warning']])
 })
 
 test('resolveRenamePath: simple rename resolves to the new path', () => {
